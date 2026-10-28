@@ -96,9 +96,10 @@ async def mesaj(interaction: discord.Interaction, metin: str, adet: app_commands
     user = interaction.user
     channel = interaction.channel
 
-    if not isinstance(channel, discord.TextChannel):
+    # Kanal tipi kontrolü: Thread'ler ve ses kanalı metinleri de desteklensin
+    if not isinstance(channel, (discord.TextChannel, discord.Thread, discord.VoiceChannel)):
         await interaction.response.send_message(
-            embed=build_embed("burada olmaz", "sadece sunucu metin kanallarında çalışır.", ERR_COLOR), ephemeral=True
+            embed=build_embed("burada olmaz", "sadece metin kanallarında, thread'lerde veya ses kanalı sohbetlerinde çalışır.", ERR_COLOR), ephemeral=True
         )
         return
 
@@ -157,14 +158,28 @@ async def mesaj(interaction: discord.Interaction, metin: str, adet: app_commands
             await channel.send(metin)
             sent += 1
             await asyncio.sleep(SPAM_DELAY)
-    except discord.Forbidden:
+    except discord.Forbidden as e:
+        # Hata logunu detaylandır
+        log.error(f"[Forbidden Hatası] Kod: {e.code} | Sebep: {e.text} | Kanal Tipi: {type(channel)} | Kanal ID: {channel.id}")
+        
         if sent == 0:
             await interaction.followup.send(
-                embed=build_embed("izin yok", "bu kanala mesaj atma iznim yok.", ERR_COLOR), ephemeral=True
+                embed=build_embed(
+                    "izin yok", 
+                    f"**Discord API Hatası:**\n```\n{e.text}\n```\nHata Kodu: `{e.code}`\n\nKanal: {channel.mention}\n\n*Eğer iznin olduğuna eminsen, kanalın türü (Duyuru/Forum vb.) buna engel olabilir.*", 
+                    ERR_COLOR
+                ), 
+                ephemeral=True
             )
             return
     except discord.HTTPException as e:
-        log.warning("mesaj gönderilemedi: %s", e)
+        log.warning(f"[HTTP Hatası] Durum: {e.status} | Sebep: {e.text} | Kod: {e.code}")
+        if sent == 0:
+            await interaction.followup.send(
+                embed=build_embed("api hatası", f"Discord API Hatası: `{e.status}` - `{e.text}`", ERR_COLOR),
+                ephemeral=True
+            )
+            return
 
     await interaction.followup.send(
         embed=build_embed("stashed", f"`{sent}/{adet}` mesaj gitti. nest is warm.", OK_COLOR), ephemeral=True
